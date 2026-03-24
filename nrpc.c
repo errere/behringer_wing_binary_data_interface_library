@@ -38,7 +38,10 @@ void nrpc_set_rx_data_callback(NRPCContext_t* ctx, nrpc_rx_data_func rx) {
 /*------------------------------------------------------------------------------
  * 接收例程：每次收到一个字节时调用
  *------------------------------------------------------------------------------*/
-void nrpc_data_rx(NRPCContext_t* ctx, uint8_t db) {
+int nrpc_data_rx(NRPCContext_t* ctx, uint8_t db) {
+
+	int err = 0;
+
 	if (db == NRP_ESCAPE_CODE && !ctx->escf) {
 		/* 第一个转义字节，进入转义状态 */
 		ctx->escf = 1;
@@ -65,20 +68,22 @@ void nrpc_data_rx(NRPCContext_t* ctx, uint8_t db) {
 					{
 						ctx->ch_id_rx = db - NRP_CHANNEL_ID_BASE;
 					}
-					return;
+					goto exit;
 				} // else if
 				else if (ctx->ch_id_rx >= 0 && ctx->rx_data)
 				{
-					ctx->rx_data(ctx->ch_id_rx, NRP_ESCAPE_CODE, ctx->user);
+					err |= ctx->rx_data(ctx->ch_id_rx, NRP_ESCAPE_CODE, ctx->user);
 				} // ch_id_rx >= 0
 
 			}//if (db != NRP_ESCAPE_CODE)
 		}//if (ctx->escf)
 		/* 普通数据字节（或转义后需要继续处理的字节） */
 		if (ctx->ch_id_rx >= 0 && ctx->rx_data) {
-			ctx->rx_data(ctx->ch_id_rx, db, ctx->user);
+			err |= ctx->rx_data(ctx->ch_id_rx, db, ctx->user);
 		}//if (ctx->ch_id_rx >= 0 && ctx->rx_data) 
 	}//!(db == NRP_ESCAPE_CODE && !escf)
+exit:
+	return err;
 }//nrpc_data_rx
 
 /*------------------------------------------------------------------------------
@@ -89,19 +94,21 @@ void nrpc_data_rx(NRPCContext_t* ctx, uint8_t db) {
  *   data   - 待发送数据缓冲区
  *   len    - 数据长度
  *------------------------------------------------------------------------------*/
-void nrpc_data_tx(NRPCContext_t* ctx, int ch_id, const void* data, int len) {
+int nrpc_data_tx(NRPCContext_t* ctx, int ch_id, const void* data, int len) {
 	assert(ch_id >= 1 && ch_id <= NRP_NUM_CHANNELS);
 	assert(ctx->tx_byte != NULL);   /* 必须注册发送回调 */
+
+	int err = 0;
 
 	/* 如果需要切换通道 */
 	if (ctx->ch_id_tx != ch_id) {
 		/* 可选：刷新之前的发送缓冲区 */
 		if (ctx->flush) {
-			ctx->flush(ctx->user);
+			err |= ctx->flush(ctx->user);
 		}
 		/* 发送通道切换序列：0xdf + (ch_id + 0xd0) */
-		ctx->tx_byte(NRP_ESCAPE_CODE, ctx->user);
-		ctx->tx_byte((uint8_t)(ch_id + NRP_CHANNEL_ID_BASE), ctx->user);
+		err |= ctx->tx_byte(NRP_ESCAPE_CODE, ctx->user);
+		err |= ctx->tx_byte((uint8_t)(ch_id + NRP_CHANNEL_ID_BASE), ctx->user);
 		ctx->ch_id_tx = ch_id;
 	}//if (ctx->ch_id_tx != ch_id) 
 
@@ -125,17 +132,21 @@ void nrpc_data_tx(NRPCContext_t* ctx, int ch_id, const void* data, int len) {
 			}
 			esc = false;
 		}//else
-		ctx->tx_byte(db, ctx->user);
+		err |= ctx->tx_byte(db, ctx->user);
 	}//while
 
 	/* 如果最后一个字节是 0xdf，则它尚未发送，需要补发 0xde */
 	if (esc) {
-		ctx->tx_byte(NRP_ESCAPE_CODE - 1, ctx->user);
+		err |= ctx->tx_byte(NRP_ESCAPE_CODE - 1, ctx->user);
 	}
-}
+	return err;
+}//nrpc_data_tx
 
-void nrpc_reset_stm(NRPCContext_t* ctx) {
+void nrpc_reset_rx_stm(NRPCContext_t* ctx) {
 	ctx->escf = 0;
 	ctx->ch_id_rx = -1;
+}//nrpc_reset_rx_stm
+
+void nrpc_reset_tx_stm(NRPCContext_t* ctx) {
 	ctx->ch_id_tx = -1;
-}//nrpc_reset_stm
+}//nrpc_reset_tx_stm

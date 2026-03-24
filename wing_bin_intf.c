@@ -30,7 +30,7 @@ static const char TAG[] = "wing_intf";
 #define WING_BIN_TOKEN_TYPE_MASK (0xffff0000)
 #define WING_BIN_TOKEN_LENGTH_MASK (0xffff)
 
-/*=============================================================================================*/
+/*========================================locals=====================================================*/
 
 static int32_t wing_bin_token_get_idal_payload_length(uint8_t token) {
 	if (token == 0x00 || token == 0x01) return WING_BIN_TOKEN_BOOL_VALUE;//false; off; 0  |  true; on; 1
@@ -91,8 +91,8 @@ static float wing_bin_pack_f32(uint8_t* buf) {
 	return f;
 }//wing_bin_pack_f32
 
-static void wing_bin_frame_decode(wing_bin_handle_t* handle) {
-
+static int wing_bin_frame_decode(wing_bin_handle_t* handle) {
+	int err = 0;
 	uint8_t* bufferx = handle->rx.buffer;
 
 	handle->rx.decoded.token = handle->rx.token;
@@ -102,7 +102,7 @@ static void wing_bin_frame_decode(wing_bin_handle_t* handle) {
 		//node hash
 		elog_d(TAG, "hash %08x", handle->rx.decoded.hash);
 		handle->rx.decoded.hash = wing_bin_pack_u32(bufferx);
-		return;
+		goto exit;
 		break;//0xd7
 
 	case 0x00:
@@ -240,19 +240,25 @@ static void wing_bin_frame_decode(wing_bin_handle_t* handle) {
 			handle->rx.decoded.type = WING_BIN_FRAME_TYPE_UNKNOWN;
 			handle->rx.decoded.string.len = handle->rx.payload_len;
 			handle->rx.decoded.string.txt = bufferx;
+
+			err |= 2;
 		}//unhandled
 		break;//default
 	}//switch (handle->rx.decoded.token)
 
 	//call done event
 	if (handle->intf.frame_done) {
-		handle->intf.frame_done(&(handle->rx.decoded), handle->user);
+		err |= handle->intf.frame_done(&(handle->rx.decoded), handle->user);
 	}
 
+exit:
+	return err;
 }//frame_decode
 
-//nrpc callbacks
-static void on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
+/*=============================================nrpc callbacks================================================*/
+
+static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
+	int err = 0;
 	//func wing_bin_rx_data call this
 	wing_bin_handle_t* this = (wing_bin_handle_t*)user;
 	if (channel == WING_BIN_AUDIO_ENGINE_CONTROL_CHANNEL_ID) {
@@ -308,7 +314,7 @@ static void on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			}
 			else {
 				//elog_w(TAG, "token%02x not have payload , type = %04x", data, this->decode_stm.token_type);
-				wing_bin_frame_decode(this);
+				err |= wing_bin_frame_decode(this);
 			}
 			break;//state 0
 
@@ -392,8 +398,10 @@ static void on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			//recv data
 			if (this->decode_stm.token_payload_length >= WING_BIN_INTF_RX_BUFFER_SIZE) {
 				elog_e(TAG, "data length bigger than buffer size");
-				//change state start
-				this->decode_stm.state = 0;
+				//reset recv stm
+				wing_bin_reset_rx_stm(this);
+				err |= 1;
+				goto exit;//exit func
 			}
 
 			this->rx.buffer[this->rx_buffer_index] = data;
@@ -401,7 +409,7 @@ static void on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 
 			this->decode_stm.token_payload_length--;
 			if (this->decode_stm.token_payload_length == 0) {
-				wing_bin_frame_decode(this);
+				err |= wing_bin_frame_decode(this);
 				//change state start
 				this->decode_stm.state = 0;
 			}
@@ -411,9 +419,19 @@ static void on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			break;//default
 		}//switch (this->decode_stm.state)
 	}//WING_BIN_AUDIO_ENGINE_CONTROL_CHANNEL_ID
+exit:
+	return err;
 }//on_rx_byte_event_cb
 
-/*=============================================================================================*/
+static int on_tx_bytes(uint8_t byte, void* user) {
+	wing_bin_handle_t* this = (wing_bin_handle_t*)user;
+}//on_tx_bytes
+
+static int on_tx_flush(void* user) {
+	wing_bin_handle_t* this = (wing_bin_handle_t*)user;
+}//on_tx_flush
+
+/*=================================================APIs============================================*/
 
 wing_bin_err_t wing_bin_decode_init(wing_bin_handle_t* handle) {
 	WING_BIN_INTF_ASSERT(handle);
@@ -423,6 +441,8 @@ wing_bin_err_t wing_bin_decode_init(wing_bin_handle_t* handle) {
 	nrpc_init(&(handle->nrpc_ctx));
 	nrpc_set_user_data(&(handle->nrpc_ctx), (void*)handle);
 	nrpc_set_rx_data_callback(&(handle->nrpc_ctx), on_rx_byte_event_cb);
+	nrpc_set_tx_byte_callback(&(handle->nrpc_ctx), on_tx_bytes);
+	nrpc_set_flush_callback(&(handle->nrpc_ctx), on_tx_flush);
 
 	return WING_BIN_INTF_OK;
 
@@ -439,9 +459,15 @@ wing_bin_err_t wing_bin_decode_link_intf(wing_bin_handle_t* handle, wing_bin_soc
 wing_bin_err_t wing_bin_rx_data(wing_bin_handle_t* handle, uint8_t* rx_bytes, size_t len) {
 	WING_BIN_INTF_ASSERT(handle);
 
+	int err = 0;
+
 	for (size_t i = 0; i < len; i++)
 	{
-		nrpc_data_rx(&(handle->nrpc_ctx), rx_bytes[i]);
+		err |= nrpc_data_rx(&(handle->nrpc_ctx), rx_bytes[i]);
+	}
+	if (err) {
+		elog_e(TAG, "err = %ld", err);
+		return WING_BIN_INTF_ERR;
 	}
 	return WING_BIN_INTF_OK;
 }//wing_bin_rx_data
@@ -459,6 +485,6 @@ void wing_bin_reset_rx_stm(wing_bin_handle_t* handle) {
 	memset(&(handle->rx), 0x00, sizeof(wing_bin_frame_t));
 	handle->rx_buffer_index = 0;
 	memset(&(handle->decode_stm), 0x00, sizeof(handle->decode_stm));
-	nrpc_reset_stm(&(handle->nrpc_ctx));
+	nrpc_reset_rx_stm(&(handle->nrpc_ctx));
 }//wing_bin_reset_rx_stm
 //eof

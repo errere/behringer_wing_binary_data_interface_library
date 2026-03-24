@@ -12,9 +12,9 @@
 //
 //{
 /* 回调函数类型定义 */
-typedef void (*nrpc_tx_byte_func)(uint8_t byte, void* user);      /* 发送单个字节 */
-typedef void (*nrpc_flush_func)(void* user);                /* 刷新发送缓冲区（可选） */
-typedef void (*nrpc_rx_data_func)(int channel, uint8_t data, void* user); /* 接收数据字节 */
+typedef int (*nrpc_tx_byte_func)(uint8_t byte, void* user);      /* 发送单个字节 */
+typedef int (*nrpc_flush_func)(void* user);                /* 刷新发送缓冲区（可选） */
+typedef int (*nrpc_rx_data_func)(int channel, uint8_t data, void* user); /* 接收数据字节 */
 
 /* 上下文结构体 */
 typedef struct {
@@ -37,7 +37,7 @@ typedef struct {
 
 void nrpc_init(NRPCContext_t* ctx);
 
-void nrpc_set_user_data(NRPCContext_t* ctx,void * user);
+void nrpc_set_user_data(NRPCContext_t* ctx, void* user);
 
 void nrpc_set_tx_byte_callback(NRPCContext_t* ctx, nrpc_tx_byte_func tx);
 
@@ -45,11 +45,11 @@ void nrpc_set_flush_callback(NRPCContext_t* ctx, nrpc_flush_func flush);
 
 void nrpc_set_rx_data_callback(NRPCContext_t* ctx, nrpc_rx_data_func rx);
 
-void nrpc_data_rx(NRPCContext_t* ctx, uint8_t db);
+int nrpc_data_rx(NRPCContext_t* ctx, uint8_t db);
 
-void nrpc_data_tx(NRPCContext_t* ctx, int ch_id, const void* data, int len);
+int nrpc_data_tx(NRPCContext_t* ctx, int ch_id, const void* data, int len);
 
-void nrpc_reset_stm(NRPCContext_t* ctx);
-
+void nrpc_reset_rx_stm(NRPCContext_t* ctx);
+void nrpc_reset_tx_stm(NRPCContext_t* ctx);
 
 //}

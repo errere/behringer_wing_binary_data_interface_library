@@ -36,7 +36,7 @@ typedef enum
 typedef struct
 {
 	uint16_t len;
-	uint8_t* txt;
+	const uint8_t* txt;
 }wing_bin_decoded_string_t;
 
 typedef struct
@@ -45,9 +45,9 @@ typedef struct
 	uint32_t hash;
 	uint16_t index;
 	uint8_t name_len;
-	uint8_t* name;
+	const uint8_t* name;
 	uint8_t longname_len;
-	uint8_t* longname;
+	const uint8_t* longname;
 	union
 	{
 		uint16_t flag;
@@ -92,7 +92,7 @@ typedef struct
 /*==============================ext interface==============================*/
 
 //typedef wing_bin_err_t(*wing_tx_callback_event_t)(uint8_t* tx_bytes, size_t len, void* user);
-typedef void (*wing_rx_callback_event_t)(wing_bin_decoded_frame_t* decoded, void* user);
+typedef int (*wing_rx_callback_event_t)(wing_bin_decoded_frame_t* decoded, void* user);
 
 typedef struct
 {
