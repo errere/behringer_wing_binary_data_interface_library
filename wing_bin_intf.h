@@ -7,10 +7,18 @@
 #define WING_BIN_INTF_RX_BUFFER_SIZE (1024)
 #define WING_BIN_INTF_TX_BUFFER_SIZE (1024)
 
+#define WING_BIN_INTF_TX_BUFFER_SIZE (1024)
+
 typedef enum
 {
 	WING_BIN_INTF_OK = 0,
-	WING_BIN_INTF_ERR = 1,
+	WING_BIN_INTF_ERR = (1 << 0),
+	WING_BIN_INTF_ERR_IO = (1 << 1),
+	WING_BIN_INTF_ERR_BUFFER_OVERFLOW = (1 << 2),
+	WING_BIN_INTF_ERR_UNHANDLED_TOKEN = (1 << 3),
+	WING_BIN_INTF_ERR_USER_CALLBACK = (1 << 4),
+
+
 }wing_bin_err_t;
 
 typedef enum
@@ -92,12 +100,15 @@ typedef struct
 /*==============================ext interface==============================*/
 
 //typedef wing_bin_err_t(*wing_tx_callback_event_t)(uint8_t* tx_bytes, size_t len, void* user);
-typedef int (*wing_rx_callback_event_t)(wing_bin_decoded_frame_t* decoded, void* user);
+typedef wing_bin_err_t(*wing_rx_frame_done_callback_event_t)(wing_bin_decoded_frame_t* decoded, void* user);
+typedef wing_bin_err_t(*wing_rx_frame_get_callback_event_t)(uint8_t token, int32_t payload_len, uint8_t* buffer, void* user);
 
 typedef struct
 {
 	//wing_tx_callback_event_t tx_evt;
-	wing_rx_callback_event_t frame_done;
+	wing_rx_frame_done_callback_event_t frame_done;
+	wing_rx_frame_get_callback_event_t frame_get;
+
 }wing_bin_socket_intf_t;
 
 /*==============================handle==============================*/

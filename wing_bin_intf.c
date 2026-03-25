@@ -91,11 +91,17 @@ static float wing_bin_pack_f32(uint8_t* buf) {
 	return f;
 }//wing_bin_pack_f32
 
-static int wing_bin_frame_decode(wing_bin_handle_t* handle) {
-	int err = 0;
+static wing_bin_err_t wing_bin_frame_decode(wing_bin_handle_t* handle) {
+	wing_bin_err_t err = 0;
 	uint8_t* bufferx = handle->rx.buffer;
 
 	handle->rx.decoded.token = handle->rx.token;
+
+	//call token event
+	if (handle->intf.frame_get) {
+		err |= handle->intf.frame_get(handle->rx.decoded.token, handle->rx.payload_len, bufferx, handle->user);
+	}
+
 	switch (handle->rx.decoded.token)
 	{
 	case 0xd7:
@@ -241,7 +247,7 @@ static int wing_bin_frame_decode(wing_bin_handle_t* handle) {
 			handle->rx.decoded.string.len = handle->rx.payload_len;
 			handle->rx.decoded.string.txt = bufferx;
 
-			err |= 2;
+			err |= WING_BIN_INTF_ERR_UNHANDLED_TOKEN;
 		}//unhandled
 		break;//default
 	}//switch (handle->rx.decoded.token)
@@ -258,7 +264,7 @@ exit:
 /*=============================================nrpc callbacks================================================*/
 
 static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
-	int err = 0;
+	wing_bin_err_t err = 0;
 	//func wing_bin_rx_data call this
 	wing_bin_handle_t* this = (wing_bin_handle_t*)user;
 	if (channel == WING_BIN_AUDIO_ENGINE_CONTROL_CHANNEL_ID) {
@@ -280,6 +286,7 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			//process token
 			this->decode_stm.token_type = wing_bin_token_get_idal_payload_length(data) & WING_BIN_TOKEN_TYPE_MASK;
 			this->decode_stm.token_payload_length = wing_bin_token_get_idal_payload_length(data) & WING_BIN_TOKEN_LENGTH_MASK;
+			this->rx.payload_len = this->decode_stm.token_payload_length;//init rx.payload_len
 			//elog_i(TAG, "type = %08x , len=%08x", this->decode_stm.token_type, this->decode_stm.token_payload_length);
 			if (this->decode_stm.token_type == WING_BIN_TOKEN_NORMAL) {
 				//change state to recv data
@@ -291,14 +298,14 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			}
 			else if (this->decode_stm.token_type == WING_BIN_TOKEN_STRINGS) {
 				this->decode_stm.token_payload_length = data - 0x7f;
-				this->rx.payload_len = this->decode_stm.token_payload_length;
+				this->rx.payload_len = this->decode_stm.token_payload_length;//update rx.payload_len
 				//change state to recv data
 				this->decode_stm.state = 10;
 			}
 			else if (this->decode_stm.token_type == WING_BIN_TOKEN_NODE_NAME) {
 
 				this->decode_stm.token_payload_length = data - 0xbf;
-				this->rx.payload_len = this->decode_stm.token_payload_length;
+				this->rx.payload_len = this->decode_stm.token_payload_length;//update rx.payload_len
 				//change state to calc recv length
 				this->decode_stm.state = 10;
 			}
@@ -310,7 +317,7 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			else if (this->decode_stm.token_type == WING_BIN_TOKEN_END_OF_DATA) {
 				//end of data , reset stm
 				wing_bin_reset_rx_stm(this);
-				return;
+				goto exit;
 			}
 			else {
 				//elog_w(TAG, "token%02x not have payload , type = %04x", data, this->decode_stm.token_type);
@@ -339,7 +346,7 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 				this->decode_stm.state = 3;
 			}
 
-			this->rx.payload_len = this->decode_stm.token_payload_length;
+			this->rx.payload_len = this->decode_stm.token_payload_length;//update rx.payload_len
 
 			//change state to recv data
 			this->decode_stm.state = 10;
@@ -371,7 +378,7 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 			//recv long length L8
 			this->decode_stm.token_payload_length |= ((uint32_t)data) & 0xff;
 
-			this->rx.payload_len = this->decode_stm.token_payload_length;
+			this->rx.payload_len = this->decode_stm.token_payload_length;//update rx.payload_len
 
 			elog_w(TAG, "long len =%ld", this->rx.payload_len);
 
@@ -400,7 +407,7 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 				elog_e(TAG, "data length bigger than buffer size");
 				//reset recv stm
 				wing_bin_reset_rx_stm(this);
-				err |= 1;
+				err |= WING_BIN_INTF_ERR_BUFFER_OVERFLOW;
 				goto exit;//exit func
 			}
 
@@ -420,7 +427,7 @@ static int on_rx_byte_event_cb(int channel, uint8_t data, void* user) {
 		}//switch (this->decode_stm.state)
 	}//WING_BIN_AUDIO_ENGINE_CONTROL_CHANNEL_ID
 exit:
-	return err;
+	return (int)err;
 }//on_rx_byte_event_cb
 
 static int on_tx_bytes(uint8_t byte, void* user) {
@@ -459,17 +466,17 @@ wing_bin_err_t wing_bin_decode_link_intf(wing_bin_handle_t* handle, wing_bin_soc
 wing_bin_err_t wing_bin_rx_data(wing_bin_handle_t* handle, uint8_t* rx_bytes, size_t len) {
 	WING_BIN_INTF_ASSERT(handle);
 
-	int err = 0;
+	wing_bin_err_t err = 0;
 
 	for (size_t i = 0; i < len; i++)
 	{
 		err |= nrpc_data_rx(&(handle->nrpc_ctx), rx_bytes[i]);
 	}
+
 	if (err) {
 		elog_e(TAG, "err = %ld", err);
-		return WING_BIN_INTF_ERR;
 	}
-	return WING_BIN_INTF_OK;
+	return err;
 }//wing_bin_rx_data
 
 void wing_bin_set_user_data(wing_bin_handle_t* handle, void* user) {
