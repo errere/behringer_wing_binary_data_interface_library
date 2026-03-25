@@ -4,11 +4,6 @@
 
 #include "nrpc.h"
 
-#define WING_BIN_INTF_RX_BUFFER_SIZE (1024)
-#define WING_BIN_INTF_TX_BUFFER_SIZE (1024)
-
-#define WING_BIN_INTF_TX_BUFFER_SIZE (1024)
-
 typedef enum
 {
 	WING_BIN_INTF_OK = 0,
@@ -91,7 +86,9 @@ typedef struct
 {
 	uint8_t token;
 	int32_t payload_len;//for frame decode
-	uint8_t buffer[WING_BIN_INTF_RX_BUFFER_SIZE];
+
+	uint8_t* rx_buffer;
+	size_t rx_buffer_size;
 
 	wing_bin_decoded_frame_t decoded;
 
@@ -121,7 +118,8 @@ typedef struct
 	wing_bin_frame_t rx;//for frame decode
 	size_t rx_buffer_index;
 
-	uint8_t tx_buffer[WING_BIN_INTF_TX_BUFFER_SIZE];
+	uint8_t* tx_buffer;
+	size_t tx_buffer_size;
 	size_t tx_buffer_index;
 
 	struct wing_bin_decode_stm_t {
@@ -135,11 +133,17 @@ typedef struct
 
 }wing_bin_handle_t;
 
-wing_bin_err_t wing_bin_decode_init(wing_bin_handle_t* handle);
+/*==============================APIs==============================*/
+wing_bin_err_t wing_bin_decode_init(wing_bin_handle_t* handle, uint8_t* rx_buffer, size_t rx_buffer_size, uint8_t* tx_buffer, size_t tx_buffer_size);
 wing_bin_err_t wing_bin_decode_link_intf(wing_bin_handle_t* handle, wing_bin_socket_intf_t intf);
-wing_bin_err_t wing_bin_rx_data(wing_bin_handle_t* handle, uint8_t* rx_bytes, size_t len);
-
 void wing_bin_set_user_data(wing_bin_handle_t* handle, void* user);
 
+wing_bin_err_t wing_bin_rx_data(wing_bin_handle_t* handle, uint8_t* rx_bytes, size_t len);
+
 void wing_bin_reset_rx_stm(wing_bin_handle_t* handle);
+void wing_bin_reset_tx_stm(wing_bin_handle_t* handle);
+
+void wing_bin_reset_rx_nrpc(wing_bin_handle_t* handle);
+void wing_bin_reset_tx_nrpc(wing_bin_handle_t* handle);
+
 //eof
